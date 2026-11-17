@@ -2,7 +2,7 @@
 
 This document serves as the master blueprint for initializing and adapting the **Frontend Architectural Skills Framework** to any React JS repository.
 
-> **Execution order:** this template is run **after** [init_ia_enviroment_be.md](./init_ia_enviroment_be.md) (backend skills, when the project has a backend) and **before** [init_ia_enviroment_sdd_framework.md](./init_ia_enviroment_sdd_framework.md) (SDD commands). The SDD commands are generated from the skills deployed here.
+> **Execution order:** this template is run **after** [init_ia_enviroment_be.md](./init_ia_enviroment_be.md) (backend skills, when the project has a backend) and **before** [init_ia_enviroment_sdd_framework.md](./init_ia_enviroment_sdd_framework.md) (SDD commands). The SDD commands are generated from the skills deployed here. On a new project with no rules file, [init_ia_enviroment_claude.md](./init_ia_enviroment_claude.md) (base project rules) runs before all of them.
 
 ---
 
@@ -29,6 +29,7 @@ Generate a confirmation report for the user containing:
 - **Layer Mapping Table:** Standard Layer vs. Detected Project Path.
 - **Adjustment Points / Discrepancies:** Note any layer that doesn't exist, doesn't cleanly align, or requires custom configuration (e.g., no global state library, file-based routing).
 - **Proposed File Generation Plan:** List of skills that will be created under `.claude/skills/fercho-fe-*/`.
+- **Existing Skills:** any skill already under `.claude/skills/` that covers one of these layers under another name or in another format. For each one, propose to replace it with the generated skill or to keep it; never leave two skills owning the same layer.
 - **Rules File:** the instruction file where the rules block will be written (section 4). If no earlier run already fixed it, ask the user to choose between `CLAUDE.md` (default), `CLAUDE.local.md`, and `AGENTS.md`. Include any unmarked legacy rules found.
 
 *STOP: Wait for user approval before writing files.*
@@ -37,6 +38,8 @@ Generate a confirmation report for the user containing:
 Upon user approval, write the following:
 1. `.claude/skills/fercho-fe-*/SKILL.md` with project-specific scopes and constraints, following the format in section 3. Skip the skill of any layer the project does not have.
 2. System Instructions patch (section 4): write the rules block between its `fercho-fe` markers in the rules file resolved in section 4 (`CLAUDE.md` by default), with every `{{PATH_*}}` placeholder replaced by the resolved path.
+
+3. **Format check:** re-read every generated `SKILL.md` and confirm that it has the `name` and `description` frontmatter, that the four sections of section 3 are present as `##` headings, in order and not empty, and that no `{{PATH_*}}` placeholder is left. Fix any file that fails before reporting the deployment as complete.
 
 Do NOT generate `.claude/commands/sdd-*.md` in this step. Once the skills are deployed, tell the user that the next step is to run `init_ia_enviroment_sdd_framework.md` to generate the SDD commands.
 
@@ -73,6 +76,11 @@ description: <what the skill does and when to use it, naming the layer and its r
 ## Constraints
 ## Workflow
 ```
+
+This format is mandatory, whatever format other skills in the repository use:
+- The four sections are `##` headings in the body, in this order. None is omitted, renamed, or merged with another.
+- Scopes and constraints are never written as frontmatter keys (`allowed_files_to_modify:`, `constraints:`). The SDD commands read the `## allowed_files_to_modify` section to decide which files a task may touch.
+- `## allowed_files_to_modify` holds one path glob per line; `## Constraints` and `## Workflow` hold one rule or step per line.
 
 Constraints must be written against the detected Stack Profile (real library names, real paths), not against the generic wording below.
 
@@ -166,16 +174,26 @@ Constraints must be written against the detected Stack Profile (real library nam
   4. Test guarded and unguarded navigation.
 
 ### 3.7 Skill: fercho-fe-bugfix-refactor
-- **Objective:** Surgical resolution of UI and state-flow issues using test-driven methodology.
+- **Objective:** Surgical resolution of UI and state-flow issues using test-driven methodology, with the minimum impact on existing code.
 - **Target Path:** Global frontend scope
 - **Constraints:**
   - Mandatory failing test (Red stage) reproducing the bug before making production changes.
   - Apply the fix in the layer that owns the defect and respect that layer skill's constraints.
-  - Do not introduce structural refactoring unless explicitly authorized.
+  - Make the failing test pass with the minimum change; do not refactor surrounding code that the fix does not touch.
+  - Never skip, delete, or weaken an existing test to get a passing suite.
+  - If the root cause is architectural (the fix would change a shared component's prop contract, restructure global state, rewrite a whole feature, or break layer boundaries), stop and escalate instead of fixing.
 - **Workflow:**
-  1. Reproduce the bug with a component, hook, or integration test.
-  2. Apply the minimum fix in the corresponding layer.
-  3. Verify the fix passes (Green stage) and the existing suite still passes.
+  - **Phase 1 – Isolate (Red):**
+    1. Read the bug report: reproduction steps, console or network errors, expected vs. actual behavior.
+    2. Write a component, hook, or integration test in the project's existing test location that reproduces the bug, or update an existing one.
+    3. Run it and confirm it fails for the reason the report describes.
+  - **Phase 2 – Surgical fix (Green):**
+    1. Trace the root cause to the specific component, hook, store, or service.
+    2. Complexity check: decide whether the fix is localized (missing guard, wrong condition, stale effect dependency, unhandled state) or architectural. If architectural, stop, print this notice, and wait for the developer:
+       > *ℹ️ Notice: The root cause of this bug requires broader architectural refactoring that exceeds a surgical fix. Escalating to the standard feature workflow.*
+    3. Apply the minimum fix in the layer that owns the defect.
+    4. Run the new test (it passes) and the existing suite of the affected area (no regressions).
+  - **Phase 3 – Clean up (optional):** light cleanup of the new test or the touched lines only.
 
 ---
 
@@ -195,10 +213,10 @@ The rules are written to `CLAUDE.md` unless the user chooses another instruction
    The file lives at the repository root. Create it if it does not exist.
 2. **Import (only when the target is `AGENTS.md`):** `CLAUDE.md` must contain the line `@AGENTS.md`. If `CLAUDE.md` does not exist, create it with that line. If it exists without the import, add the line and leave the rest of its content untouched.
 3. **Markers:** the block below is delimited by `<!-- fercho-fe:start -->` and `<!-- fercho-fe:end -->`. If the target file already contains these markers, replace everything between them; otherwise append the block at the end of the file. Never write the block twice and never modify content outside the markers.
-4. **Block order:** when several blocks are present, keep them in the order `fercho-be`, `fercho-fe`, `fercho-sdd`.
+4. **Block order:** when several blocks are present, keep them in the order `fercho-base`, `fercho-be`, `fercho-fe`, `fercho-sdd`.
 5. **Legacy rules:** if `CLAUDE.md`, `CLAUDE.local.md`, or `AGENTS.md` already contains an unmarked copy of this section from an earlier setup, report it in the confirmation step and replace it with the marked block only after the user approves.
 
-Block to write (replace every `{{PATH_*}}` placeholder with the resolved path):
+Block to write (replace every `{{PATH_*}}` placeholder with the resolved path, and remove from rule 2 any layer whose skill was not generated):
 
 ```markdown
 <!-- fercho-fe:start -->
@@ -208,10 +226,11 @@ Block to write (replace every `{{PATH_*}}` placeholder with the resolved path):
    - UI Components (`{{PATH_UI_COMPONENTS}}`) must remain **presentational** (props in, JSX out, UI-only local state, zero API/business logic).
    - Business logic must reside entirely inside Custom Hooks (`{{PATH_HOOKS}}`) or API Services (`{{PATH_FE_API_SERVICES}}`).
    - Never mix business logic directly inside render blocks.
-2. Before modifying frontend code, analyze the target layer against registered `fercho-fe-*` skills in `.claude/skills/`.
-3. Restrict code edits strictly to the `allowed_files_to_modify` paths defined in the corresponding layer skill.
-4. **Fallback Notice:** If a frontend task does not match any registered `fercho-fe-*` layer skill, print this notice before executing:
+2. **Layer decomposition:** before creating, modifying, or refactoring frontend code, split the request into the layers it touches (UI Components, Features / Containers, State Management, Custom Hooks, API Services, Routing & Guards) and match each part to its registered `fercho-fe-*` skill in `.claude/skills/`. A request that spans several layers is done as one part per layer, each under its own skill.
+3. For each part, load the matching skill and follow its constraints and workflow before editing.
+4. Restrict code edits strictly to the `allowed_files_to_modify` paths defined in the corresponding layer skill.
+5. **Fallback Notice:** If a frontend task does not match any registered `fercho-fe-*` layer skill, print this notice before executing:
    > *ℹ️ Note: No custom frontend layer skill applies to this task. Executing under standard React project conventions.*
-5. **Frontend Lookup Order:** when looking for existing frontend code to reuse, check Project UI Guidelines -> Existing Hooks -> Existing Components and their props before creating anything new.
+6. **Frontend Lookup Order:** when looking for existing frontend code to reuse, check Project UI Guidelines -> Existing Hooks -> Existing Components and their props before creating anything new.
 <!-- fercho-fe:end -->
 ```

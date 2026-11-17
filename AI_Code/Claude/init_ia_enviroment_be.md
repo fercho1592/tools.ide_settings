@@ -2,7 +2,7 @@
 
 This document serves as the master blueprint for initializing and adapting the **Backend Architectural Skills Framework** to any repository, regardless of language or framework.
 
-> **Execution order:** this template is run **before** [init_ia_enviroment_sdd_framework.md](./init_ia_enviroment_sdd_framework.md) (SDD commands). The SDD commands are generated from the skills deployed here (and from the frontend skills in [init_ia_enviroment_fe.md](./init_ia_enviroment_fe.md), when the project has a frontend).
+> **Execution order:** this template is run **before** [init_ia_enviroment_sdd_framework.md](./init_ia_enviroment_sdd_framework.md) (SDD commands). The SDD commands are generated from the skills deployed here (and from the frontend skills in [init_ia_enviroment_fe.md](./init_ia_enviroment_fe.md), when the project has a frontend). On a new project with no rules file, [init_ia_enviroment_claude.md](./init_ia_enviroment_claude.md) (base project rules) runs before all of them.
 
 ---
 
@@ -29,6 +29,7 @@ Generate a confirmation report for the user containing:
 - **Layer Mapping Table:** Standard Layer vs. Detected Project Path (source and tests).
 - **Adjustment Points / Discrepancies:** Note any layer that doesn't exist, doesn't cleanly align, or requires custom configuration (e.g., no Orchestrators layer, services and domain logic in the same folder).
 - **Proposed File Generation Plan:** List of skills that will be created under `.claude/skills/fercho-be-*/`.
+- **Existing Skills:** any skill already under `.claude/skills/` that covers one of these layers under another name or in another format. For each one, propose to replace it with the generated skill or to keep it; never leave two skills owning the same layer.
 - **Rules File:** the instruction file where the rules block will be written (section 4). If no earlier run already fixed it, ask the user to choose between `CLAUDE.md` (default), `CLAUDE.local.md`, and `AGENTS.md`. Include any unmarked legacy rules found.
 
 *STOP: Wait for user approval before writing files.*
@@ -37,6 +38,8 @@ Generate a confirmation report for the user containing:
 Upon user approval, write the following:
 1. `.claude/skills/fercho-be-*/SKILL.md` with project-specific scopes and constraints, following the format in section 3. Skip the skill of any layer the project does not have.
 2. System Instructions patch (section 4): write the rules block between its `fercho-be` markers in the rules file resolved in section 4 (`CLAUDE.md` by default), with every `{{PATH_*}}` placeholder replaced by the resolved path.
+
+3. **Format check:** re-read every generated `SKILL.md` and confirm that it has the `name` and `description` frontmatter, that the four sections of section 3 are present as `##` headings, in order and not empty, and that no `{{PATH_*}}` placeholder is left. Fix any file that fails before reporting the deployment as complete.
 
 Do NOT generate `.claude/commands/sdd-*.md` in this step. Once the skills are deployed, tell the user that the next step is to run `init_ia_enviroment_fe.md` (if the project has a frontend) and then `init_ia_enviroment_sdd_framework.md` to generate the SDD commands.
 
@@ -53,9 +56,10 @@ Do NOT generate `.claude/commands/sdd-*.md` in this step. Once the skills are de
 | **Orchestrators** | Complex multi-service strategy branching | `fercho-be-orchestrators` | `{{PATH_ORCHESTRATORS}}` |
 | **API / DTOs** | Controllers, endpoints, request/response models | `fercho-be-api-dtos` | `{{PATH_API_DTOS}}` |
 | **DI Registration** | Container configuration, modules, extensions | `fercho-be-di-registration` | `{{PATH_DI_REGISTRATION}}` |
-| **Third-Party Integrations** | External APIs, proxies, boundary handlers | `fercho-be-integrations` | `{{PATH_INTEGRATIONS}}` |
+| **Third-Party Integrations** | Permanent clients for external APIs, SDKs, and services | `fercho-be-integrations` | `{{PATH_INTEGRATIONS}}` |
+| **Integration Proxies** | Temporary stand-ins for an external dependency that is not available yet | `fercho-be-integration-proxies` | `{{PATH_INTEGRATION_PROXIES}}` |
 
-A ninth skill, `fercho-be-bugfix-refactor`, is cross-cutting and applies to the whole backend scope rather than to one layer.
+A tenth skill, `fercho-be-bugfix-refactor`, is cross-cutting and applies to the whole backend scope rather than to one layer.
 
 ---
 
@@ -75,6 +79,11 @@ description: <what the skill does and when to use it, naming the layer and its r
 ## Constraints
 ## Workflow
 ```
+
+This format is mandatory, whatever format other skills in the repository use:
+- The four sections are `##` headings in the body, in this order. None is omitted, renamed, or merged with another.
+- Scopes and constraints are never written as frontmatter keys (`allowed_files_to_modify:`, `constraints:`). The SDD commands read the `## allowed_files_to_modify` section to decide which files a task may touch.
+- `## allowed_files_to_modify` holds one path glob per line; `## Constraints` and `## Workflow` hold one rule or step per line.
 
 The constraints below are written generically. In each generated skill, rewrite them in the idiom of the detected Stack Profile (real library names, real paths, real commands), and drop any constraint that has no equivalent in the project's stack.
 
@@ -177,9 +186,10 @@ The constraints below are written generically. In each generated skill, rewrite 
   3. Verify the application starts and resolves the new dependencies (startup or container validation test where the project has one).
 
 ### 3.8 Skill: fercho-be-integrations
-- **Objective:** Isolate communication with external systems behind boundary contracts.
+- **Objective:** Implement the permanent clients that talk to external systems, behind boundary contracts. Use it when the external API, SDK, or service is defined and reachable.
 - **Target Entity / Layer:** `{{PATH_INTEGRATIONS}}`
 - **Constraints:**
+  - Transport and execution only: no business rules, flow decisions, or domain validation inside the client.
   - Each external system is wrapped behind a contract owned by this project; external models never leak into services or domain logic.
   - Use the project's configured HTTP/messaging client setup; endpoints, credentials, and timeouts come from configuration.
   - Every call defines its timeout and its failure behavior (retry policy, fallback, or propagated error) following project conventions.
@@ -191,17 +201,42 @@ The constraints below are written generically. In each generated skill, rewrite 
   3. Configure timeouts, retries, and error translation.
   4. Test with the external system stubbed (success, error response, timeout).
 
-### 3.9 Skill: fercho-be-bugfix-refactor
-- **Objective:** Surgical backend issue resolution using test-driven methodology.
+### 3.9 Skill: fercho-be-integration-proxies
+- **Objective:** Create a temporary stand-in (interface plus stubbed implementation) for an external dependency that is not available yet, so the rest of the feature can be built and tested. Use `fercho-be-integrations` once the real system is available.
+- **Target Entity / Layer:** `{{PATH_INTEGRATION_PROXIES}}`
+- **Constraints:**
+  - If the inputs, return types, or expected behavior of the dependency are missing or ambiguous, stop and ask before writing code.
+  - The proxy implements the same boundary contract the real client will implement, so replacing it later changes only the DI registration.
+  - Every proxy file starts with this comment, in the comment syntax of the language: `TEMPORARY PROXY: Created for isolated development. Replace or remove once the integration or third-party service is available.`
+  - Return simulated data in the expected shape; no business rules, data transformation, or orchestration decisions.
+  - Do not modify domain models, repositories, persistence configuration, or endpoints.
+- **Workflow:**
+  1. Confirm the contract (operations, inputs, outputs, error cases) with the developer; ask about anything unclear.
+  2. Define the boundary contract, or reuse the one the real client will implement.
+  3. Implement the proxy with the mandatory banner and stubbed responses.
+  4. Tell the developer which proxy was created and what must replace it.
+
+### 3.10 Skill: fercho-be-bugfix-refactor
+- **Objective:** Surgical backend issue resolution using test-driven methodology, with the minimum impact on existing code.
 - **Target Entity / Layer:** Global backend scope
 - **Constraints:**
   - Mandatory failing test (Red stage) before making production changes.
   - Apply the fix in the layer that owns the defect and respect that layer skill's constraints.
-  - Do not introduce structural refactoring unless explicitly authorized.
+  - Make the failing test pass with the minimum change; do not refactor surrounding code that the fix does not touch.
+  - Never skip, delete, or weaken an existing test to get a passing suite.
+  - If the root cause is architectural (the fix would change core contracts, rewrite a whole service, or break layer boundaries), stop and escalate instead of fixing.
 - **Workflow:**
-  1. Reproduce the bug with a unit/integration test.
-  2. Apply the minimum fix in the corresponding layer.
-  3. Verify the fix passes (Green stage) and the existing suite still passes.
+  - **Phase 1 – Isolate (Red):**
+    1. Read the bug report: reproduction steps, stack trace, expected vs. actual behavior.
+    2. Write a unit or integration test in the project's existing test location that reproduces the bug, or update an existing one.
+    3. Run it and confirm it fails for the reason the report describes.
+  - **Phase 2 – Surgical fix (Green):**
+    1. Trace the root cause to the specific method or line.
+    2. Complexity check: decide whether the fix is localized (missing check, wrong condition, unhandled edge case) or architectural. If architectural, stop, print this notice, and wait for the developer:
+       > *ℹ️ Notice: The root cause of this bug requires broader architectural refactoring that exceeds a surgical fix. Escalating to the standard feature workflow.*
+    3. Apply the minimum fix in the layer that owns the defect.
+    4. Run the new test (it passes) and the existing suite of the module (no regressions).
+  - **Phase 3 – Clean up (optional):** light cleanup of the new test or the touched lines only.
 
 ---
 
@@ -221,19 +256,20 @@ The rules are written to `CLAUDE.md` unless the user chooses another instruction
    The file lives at the repository root. Create it if it does not exist.
 2. **Import (only when the target is `AGENTS.md`):** `CLAUDE.md` must contain the line `@AGENTS.md`. If `CLAUDE.md` does not exist, create it with that line. If it exists without the import, add the line and leave the rest of its content untouched.
 3. **Markers:** the block below is delimited by `<!-- fercho-be:start -->` and `<!-- fercho-be:end -->`. If the target file already contains these markers, replace everything between them; otherwise append the block at the end of the file. Never write the block twice and never modify content outside the markers.
-4. **Block order:** when several blocks are present, keep them in the order `fercho-be`, `fercho-fe`, `fercho-sdd`.
+4. **Block order:** when several blocks are present, keep them in the order `fercho-base`, `fercho-be`, `fercho-fe`, `fercho-sdd`.
 5. **Legacy rules:** if `CLAUDE.md`, `CLAUDE.local.md`, or `AGENTS.md` already contains an unmarked copy of this section from an earlier setup, report it in the confirmation step and replace it with the marked block only after the user approves.
 
-Block to write (replace every `{{PATH_*}}` placeholder with the resolved path):
+Block to write (replace every `{{PATH_*}}` placeholder with the resolved path, and remove from rule 1 any layer whose skill was not generated):
 
 ```markdown
 <!-- fercho-be:start -->
 ## Backend Layered Execution & Skill Dispatch Rules
 
-1. Before modifying backend code, analyze the target layer against registered `fercho-be-*` skills in `.claude/skills/`.
-2. Restrict code edits strictly to the `allowed_files_to_modify` paths defined in the corresponding layer skill. Tests for a layer are covered by that layer's skill.
-3. **Dependency direction:** API (`{{PATH_API_DTOS}}`) -> Orchestrators (`{{PATH_ORCHESTRATORS}}`) / Services (`{{PATH_SERVICES}}`) -> Domain Logic (`{{PATH_DOMAIN_LOGIC}}`) and Repositories (`{{PATH_REPOSITORIES}}`). Domain Logic depends on nothing.
-4. **Fallback Notice:** If a backend task does not match any registered `fercho-be-*` layer skill (e.g., documentation, build scripts, tooling), print this notice before executing:
+1. **Layer decomposition:** before creating, modifying, or refactoring backend code, split the request into the layers it touches (Data Scaffolding, Repositories, Domain Logic, Business Services, Orchestrators, API / DTOs, DI Registration, Third-Party Integrations, Integration Proxies) and match each part to its registered `fercho-be-*` skill in `.claude/skills/`. A request that spans several layers is done as one part per layer, each under its own skill.
+2. For each part, load the matching skill and follow its constraints and workflow before editing.
+3. Restrict code edits strictly to the `allowed_files_to_modify` paths defined in the corresponding layer skill. Tests for a layer are covered by that layer's skill.
+4. **Dependency direction:** API (`{{PATH_API_DTOS}}`) -> Orchestrators (`{{PATH_ORCHESTRATORS}}`) / Services (`{{PATH_SERVICES}}`) -> Domain Logic (`{{PATH_DOMAIN_LOGIC}}`) and Repositories (`{{PATH_REPOSITORIES}}`). Domain Logic depends on nothing.
+5. **Fallback Notice:** If a backend task does not match any registered `fercho-be-*` layer skill (e.g., documentation, build scripts, tooling), print this notice before executing:
    > *ℹ️ Note: No custom backend layer skill applies to this task. Executing under standard project conventions.*
 <!-- fercho-be:end -->
 ```

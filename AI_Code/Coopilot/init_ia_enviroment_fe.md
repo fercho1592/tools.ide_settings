@@ -2,7 +2,7 @@
 
 This document serves as the master blueprint for initializing and adapting the **Frontend Layer Instructions Framework** to any React JS repository using **GitHub Copilot**.
 
-> **Execution order:** this template is run **after** [init_ia_enviroment_be.md](./init_ia_enviroment_be.md) (backend layer instructions, when the project has a backend) and **before** [init_ia_enviroment_sdd_framework.md](./init_ia_enviroment_sdd_framework.md) (SDD prompt files). The SDD prompt files are generated from the layer instructions deployed here.
+> **Execution order:** this template is run **after** [init_ia_enviroment_be.md](./init_ia_enviroment_be.md) (backend layer instructions, when the project has a backend) and **before** [init_ia_enviroment_sdd_framework.md](./init_ia_enviroment_sdd_framework.md) (SDD prompt files). The SDD prompt files are generated from the layer instructions deployed here. On a new project with no instructions file, [init_ia_enviroment_copilot.md](./init_ia_enviroment_copilot.md) (base project rules) runs before all of them.
 
 ---
 
@@ -38,6 +38,8 @@ Upon user approval, write the following:
 1. `.github/instructions/fercho-fe-*.instructions.md` with project-specific scopes and constraints, following the format in section 3. Skip the file of any layer the project does not have.
 2. System Instructions patch (section 4): write the rules block to `.github/copilot-instructions.md` between its `fercho-fe` markers, with every `{{PATH_*}}` placeholder replaced by the resolved path.
 
+3. **Format check:** re-read every generated `fercho-fe-*.instructions.md` and confirm that it has the `description` and `applyTo` frontmatter, that the three sections of section 3 are present as `##` headings, in order and not empty, that its `applyTo` globs do not overlap those of another layer, and that no `{{PATH_*}}` placeholder is left. Do the same for the bugfix prompt file (`description` and `agent` frontmatter). Fix any file that fails before reporting the deployment as complete.
+
 Do NOT generate `.github/prompts/sdd-*.prompt.md` in this step. Once the layer instructions are deployed, tell the user that the next step is to run `init_ia_enviroment_sdd_framework.md` to generate the SDD prompt files.
 
 ---
@@ -72,6 +74,11 @@ applyTo: "<comma-separated resolved globs for this layer, including the location
 ## Constraints
 ## Workflow
 ```
+
+This format is mandatory, whatever format other instruction files in the repository use:
+- The three sections are `##` headings in the body, in this order. None is omitted, renamed, or merged with another.
+- Scopes are never written as extra frontmatter keys or inside the body: the layer's edit scope is its `applyTo`. The SDD prompt files read `applyTo` to decide which files a task may touch.
+- `## Constraints` and `## Workflow` hold one rule or step per line.
 
 - `applyTo` is what makes Copilot load the file automatically when it works on matching files, and it is also the layer's **edit scope**: a task executed under a layer instruction may only modify files matching its `applyTo` globs.
 - Globs of different layers must not overlap. If two layers share a folder, narrow the globs by file-name pattern or report it as a discrepancy in the confirmation step.
@@ -169,16 +176,26 @@ Constraints must be written against the detected Stack Profile (real library nam
   4. Test guarded and unguarded navigation.
 
 ### 3.7 Prompt: fercho-fe-bugfix-refactor
-- **Objective:** Surgical resolution of UI and state-flow issues using test-driven methodology.
+- **Objective:** Surgical resolution of UI and state-flow issues using test-driven methodology, with the minimum impact on existing code.
 - **Target Path:** Global frontend scope
 - **Constraints:**
   - Mandatory failing test (Red stage) reproducing the bug before making production changes.
   - Apply the fix in the layer that owns the defect and respect that layer instruction's constraints.
-  - Do not introduce structural refactoring unless explicitly authorized.
+  - Make the failing test pass with the minimum change; do not refactor surrounding code that the fix does not touch.
+  - Never skip, delete, or weaken an existing test to get a passing suite.
+  - If the root cause is architectural (the fix would change a shared component's prop contract, restructure global state, rewrite a whole feature, or break layer boundaries), stop and escalate instead of fixing.
 - **Workflow:**
-  1. Reproduce the bug with a component, hook, or integration test.
-  2. Apply the minimum fix in the corresponding layer.
-  3. Verify the fix passes (Green stage) and the existing suite still passes.
+  - **Phase 1 – Isolate (Red):**
+    1. Read the bug report: reproduction steps, console or network errors, expected vs. actual behavior.
+    2. Write a component, hook, or integration test in the project's existing test location that reproduces the bug, or update an existing one.
+    3. Run it and confirm it fails for the reason the report describes.
+  - **Phase 2 – Surgical fix (Green):**
+    1. Trace the root cause to the specific component, hook, store, or service.
+    2. Complexity check: decide whether the fix is localized (missing guard, wrong condition, stale effect dependency, unhandled state) or architectural. If architectural, stop, print this notice, and wait for the developer:
+       > *ℹ️ Notice: The root cause of this bug requires broader architectural refactoring that exceeds a surgical fix. Escalating to the standard feature workflow.*
+    3. Apply the minimum fix in the layer that owns the defect.
+    4. Run the new test (it passes) and the existing suite of the affected area (no regressions).
+  - **Phase 3 – Clean up (optional):** light cleanup of the new test or the touched lines only.
 
 ---
 
@@ -189,10 +206,10 @@ The rules are written to `.github/copilot-instructions.md`, the file GitHub Copi
 **Write rules:**
 1. **Target file:** `.github/copilot-instructions.md`. Create it if it does not exist.
 2. **Markers:** the block below is delimited by `<!-- fercho-fe:start -->` and `<!-- fercho-fe:end -->`. If the file already contains these markers, replace everything between them; otherwise append the block at the end of the file. Never write the block twice and never modify content outside the markers.
-3. **Block order:** when several blocks are present, keep them in the order `fercho-be`, `fercho-fe`, `fercho-sdd`.
+3. **Block order:** when several blocks are present, keep them in the order `fercho-base`, `fercho-be`, `fercho-fe`, `fercho-sdd`.
 4. **Legacy rules:** if `.github/copilot-instructions.md` or `AGENTS.md` already contains an unmarked copy of this section from an earlier setup, report it in the confirmation step and replace it with the marked block only after the user approves.
 
-Block to write (replace every `{{PATH_*}}` placeholder with the resolved path):
+Block to write (replace every `{{PATH_*}}` placeholder with the resolved path, and remove from rule 2 any layer whose instruction was not generated):
 
 ```markdown
 <!-- fercho-fe:start -->
@@ -202,11 +219,12 @@ Block to write (replace every `{{PATH_*}}` placeholder with the resolved path):
    - UI Components (`{{PATH_UI_COMPONENTS}}`) must remain **presentational** (props in, JSX out, UI-only local state, zero API/business logic).
    - Business logic must reside entirely inside Custom Hooks (`{{PATH_HOOKS}}`) or API Services (`{{PATH_FE_API_SERVICES}}`).
    - Never mix business logic directly inside render blocks.
-2. Before modifying frontend code, identify the target layer and follow its `fercho-fe-*` instruction file in `.github/instructions/`.
-3. Restrict code edits strictly to the `applyTo` paths of the corresponding layer instruction.
-4. **Fallback Notice:** If a frontend task does not match any registered `fercho-fe-*` layer instruction, print this notice before executing:
+2. **Layer decomposition:** before creating, modifying, or refactoring frontend code, split the request into the layers it touches (UI Components, Features / Containers, State Management, Custom Hooks, API Services, Routing & Guards) and match each part to its `fercho-fe-*` instruction file in `.github/instructions/`. A request that spans several layers is done as one part per layer, each under its own instruction.
+3. For each part, read the matching instruction file and follow its constraints and workflow before editing; do not rely only on Copilot attaching it automatically.
+4. Restrict code edits strictly to the `applyTo` paths of the corresponding layer instruction.
+5. **Fallback Notice:** If a frontend task does not match any registered `fercho-fe-*` layer instruction, print this notice before executing:
    > *ℹ️ Note: No custom frontend layer instruction applies to this task. Executing under standard React project conventions.*
-5. Bugs are fixed with the `/fercho-fe-bugfix-refactor` prompt (failing test first).
-6. **Frontend Lookup Order:** when looking for existing frontend code to reuse, check Project UI Guidelines -> Existing Hooks -> Existing Components and their props before creating anything new.
+6. Bugs are fixed with the `/fercho-fe-bugfix-refactor` prompt (failing test first).
+7. **Frontend Lookup Order:** when looking for existing frontend code to reuse, check Project UI Guidelines -> Existing Hooks -> Existing Components and their props before creating anything new.
 <!-- fercho-fe:end -->
 ```
